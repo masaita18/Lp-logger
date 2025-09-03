@@ -8,9 +8,12 @@ import requests
 
 # ==== 設定 ====
 RPC_URL = "https://rpc.hypurrscan.io"
-POSITION_MANAGER = "0xbd19e19e4b70eb7f248695a42208c1bdebbfb57d"  # Nonfungible Position Manager
-TOKEN_ID = 101400  # 対象のLP NFT ID
-HYPE_COINGECKO_ID = "hyperliquid"   # 要確認: HYPE の正しい Coingecko ID
+
+# Nonfungible Position Manager（固定アドレス）
+POSITION_MANAGER = Web3.to_checksum_address("0xbd19e19e4b70eb7f248695a42208c1bdebbfb57d")
+
+TOKEN_ID = 101400   # 対象のLP NFT ID
+HYPE_COINGECKO_ID = "hyperliquid"  # HYPE の Coingecko ID（要確認）
 
 DECIMALS = {
     "HYPE": 18,
@@ -50,79 +53,46 @@ CSV_FILE = "lp_history.csv"
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestamp", "liquidity", "owed_HYPE", "owed_USDT", "reward_usdt"])
+        writer.writerow(["date", "HYPE", "USDT", "total_usdt"])
 
-# ==== Coingecko API ====
-def get_hype_price():
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={HYPE_COINGECKO_ID}&vs_currencies=usd"
-    try:
-        res = requests.get(url, timeout=10).json()
-        return res[HYPE_COINGECKO_ID]["usd"]
-    except Exception as e:
-        print("⚠️ Price fetch failed:", e)
-        return None
+# ==== Coingecko から価格取得 ====
+def get_price(token_id):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
+    res = requests.get(url).json()
+    return res[token_id]["usd"]
 
-# ==== データ取得 ====
-def fetch_lp_data():
-    pos = pm_contract.functions.positions(TOKEN_ID).call()
-    owed0 = pos[10] / (10 ** DECIMALS["HYPE"])   # HYPE
-    owed1 = pos[11] / (10 ** DECIMALS["USDT"])  # USDT
-    hype_price = get_hype_price() or 0
-    reward_usdt = owed1 + owed0 * hype_price
-    return {
-        "liquidity": pos[7],
-        "owed_HYPE": owed0,
-        "owed_USDT": owed1,
-        "reward_usdt": reward_usdt
-    }
+# ==== ポジション情報取得 ====
+def get_position(token_id):
+    return pm_contract.functions.positions(token_id).call()
 
-# ==== CSV 保存 ====
-def log_data():
-    data = fetch_lp_data()
+# ==== メイン処理 ====
+def main():
+    pos = get_position(TOKEN_ID)
+    hype_reward = pos[10] / (10 ** DECIMALS["HYPE"])
+    usdt_reward = pos[11] / (10 ** DECIMALS["USDT"])
+
+    # HYPE→USDT 換算
+    hype_price = get_price(HYPE_COINGECKO_ID)
+    hype_in_usdt = hype_reward * hype_price
+    total_usdt = hype_in_usdt + usdt_reward
+
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
+    # CSV 追記
     with open(CSV_FILE, mode="a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([now, data["liquidity"], data["owed_HYPE"], data["owed_USDT"], data["reward_usdt"]])
+        writer.writerow([now, hype_reward, usdt_reward, total_usdt])
 
-    print(f"[{now}] Reward (USDT)={data['reward_usdt']:.4f}")
-
-# ==== グラフ作成 ====
-def plot_graph():
+    # グラフ生成
     df = pd.read_csv(CSV_FILE)
-    if df.empty: return
-
-    # 日次リターン計算
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["daily_change"] = df["reward_usdt"].diff()
-    df["daily_yield_%"] = (df["daily_change"] / df["reward_usdt"].shift(1)) * 100
-
-    # グラフ1: リワード推移
-    plt.figure(figsize=(10,6))
-    plt.plot(df["timestamp"], df["reward_usdt"], label="Total Rewards (USDT)")
-    plt.xticks(rotation=45)
-    plt.xlabel("Time (UTC)")
+    plt.figure(figsize=(10, 6))
+    plt.plot(pd.to_datetime(df["date"]), df["total_usdt"], marker="o")
+    plt.title("LP Reward (in USDT)")
+    plt.xlabel("Date")
     plt.ylabel("USDT Value")
-    plt.title("LP Rewards (USDT) Over Time")
-    plt.legend()
-    plt.tight_layout()
+    plt.grid(True)
     plt.savefig("lp_value.png")
     plt.close()
 
-    # グラフ2: 日利推移
-    plt.figure(figsize=(10,6))
-    plt.plot(df["timestamp"], df["daily_yield_%"], label="Daily Yield (%)", color="orange")
-    plt.xticks(rotation=45)
-    plt.xlabel("Time (UTC)")
-    plt.ylabel("Daily Yield %")
-    plt.title("Daily Yield from LP Rewards")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("lp_daily_yield.png")
-    plt.close()
-
-    print("📊 lp_value.png & lp_daily_yield.png updated")
-
 if __name__ == "__main__":
-    log_data()
-    plot_graph()
+    main()
