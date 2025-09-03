@@ -7,20 +7,23 @@ import pandas as pd
 import requests
 
 # ==== 設定 ====
-RPC_URL = "https://rpc.hypurrscan.io"
+RPC_URL = "https://rpc.hyperliquid.xyz/evm"
 
-# Nonfungible Position Manager（固定アドレス）
-POSITION_MANAGER = Web3.to_checksum_address("0xbd19e19e4b70eb7f248695a42208c1bdebbfb57d")
+# 正しい NonfungiblePositionManager (Hyperliquid EVM)
+POSITION_MANAGER = Web3.to_checksum_address("0xeaD19AE861c29bBb2101E834922B2FFeee69B9091")
 
-TOKEN_ID = 101400   # 対象のLP NFT ID
-HYPE_COINGECKO_ID = "hyperliquid"  # HYPE の Coingecko ID（要確認）
+# 追跡する LP NFT ID
+TOKEN_ID = 101400   # <-- あなたのNFT IDに変更してください
+
+# Coingecko ID (要確認: Hyperliquid の HYPE トークンID)
+HYPE_COINGECKO_ID = "hyperliquid"
 
 DECIMALS = {
     "HYPE": 18,
-    "USDT": 6
+    "USDT": 6,
 }
 
-# ==== ABI の必要部分 ====
+# ==== ABI (positions 関数のみ) ====
 POSITION_MANAGER_ABI = [
     {
         "name": "positions",
@@ -40,7 +43,7 @@ POSITION_MANAGER_ABI = [
         ],
         "inputs": [{"name": "tokenId", "type": "uint256"}],
         "stateMutability": "view",
-        "type": "function"
+        "type": "function",
     }
 ]
 
@@ -48,51 +51,60 @@ POSITION_MANAGER_ABI = [
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 pm_contract = w3.eth.contract(address=POSITION_MANAGER, abi=POSITION_MANAGER_ABI)
 
-# ==== CSV 初期化 ====
-CSV_FILE = "lp_history.csv"
-if not os.path.exists(CSV_FILE):
-    with open(CSV_FILE, mode="w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["date", "HYPE", "USDT", "total_usdt"])
 
-# ==== Coingecko から価格取得 ====
-def get_price(token_id):
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
-    res = requests.get(url).json()
-    return res[token_id]["usd"]
-
-# ==== ポジション情報取得 ====
+# ==== LP情報取得 ====
 def get_position(token_id):
     return pm_contract.functions.positions(token_id).call()
+
+
+# ==== Coingeckoから価格取得 ====
+def get_price(token_id):
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd"
+    r = requests.get(url)
+    return r.json()[token_id]["usd"]
+
+
+# ==== CSV保存 ====
+CSV_FILE = "lp_history.csv"
+
+def save_to_csv(timestamp, value_usd):
+    file_exists = os.path.isfile(CSV_FILE)
+    with open(CSV_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["timestamp", "value_usd"])
+        writer.writerow([timestamp, value_usd])
+
+
+# ==== グラフ生成 ====
+def plot_graph():
+    df = pd.read_csv(CSV_FILE)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    plt.figure(figsize=(10, 5))
+    plt.plot(df["timestamp"], df["value_usd"], marker="o")
+    plt.title("LP Value Over Time (USD)")
+    plt.xlabel("Date")
+    plt.ylabel("Value (USD)")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig("lp_value.png")
+    plt.close()
+
 
 # ==== メイン処理 ====
 def main():
     pos = get_position(TOKEN_ID)
-    hype_reward = pos[10] / (10 ** DECIMALS["HYPE"])
-    usdt_reward = pos[11] / (10 ** DECIMALS["USDT"])
+    liquidity = pos[7]  # "liquidity"
 
-    # HYPE→USDT 換算
-    hype_price = get_price(HYPE_COINGECKO_ID)
-    hype_in_usdt = hype_reward * hype_price
-    total_usdt = hype_in_usdt + usdt_reward
+    # 簡易的に HYPE のみの流動性として計算
+    price_hype = get_price(HYPE_COINGECKO_ID)
+    value_usd = liquidity / (10**DECIMALS["HYPE"]) * price_hype
 
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    save_to_csv(timestamp, value_usd)
+    plot_graph()
+    print(f"[{timestamp}] Value: ${value_usd:.2f}")
 
-    # CSV 追記
-    with open(CSV_FILE, mode="a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([now, hype_reward, usdt_reward, total_usdt])
-
-    # グラフ生成
-    df = pd.read_csv(CSV_FILE)
-    plt.figure(figsize=(10, 6))
-    plt.plot(pd.to_datetime(df["date"]), df["total_usdt"], marker="o")
-    plt.title("LP Reward (in USDT)")
-    plt.xlabel("Date")
-    plt.ylabel("USDT Value")
-    plt.grid(True)
-    plt.savefig("lp_value.png")
-    plt.close()
 
 if __name__ == "__main__":
     main()
