@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub Actions は UTC で動きます。00:00 JST = 15:00 UTC 前日
     - cron: "0 15 * * *"   # 毎日 00:00 JST に1回実行
-  workflow_dispatch:        # 手動実行も可能
+  workflow_dispatch:       # 手動実行も可能
 
 jobs:
   run:
@@ -23,8 +23,9 @@ jobs:
           pip install requests web3 pandas matplotlib
 
       - name: Run script
-        run: |
-          python lp_logger.py
+        run: python lp_logger.py
+        env:
+          HYPE_RPC: ${{ secrets.HYPE_RPC }}
 
       - name: Commit results
         run: |
