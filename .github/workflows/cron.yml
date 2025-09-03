@@ -3,7 +3,7 @@ name: LP Logger
 on:
   schedule:
     - cron: "0 * * * *"   # 毎時実行
-  workflow_dispatch:       # 手動実行も可能
+  workflow_dispatch:      # 手動実行も可能
 
 jobs:
   run-logger:
@@ -17,7 +17,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install web3
+        run: pip install -r requirements.txt
 
       - name: Run logger
         run: python lp_logger.py
@@ -26,6 +26,6 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git add lp_history.csv
-          git commit -m "update LP history" || echo "No changes"
+          git add lp_history.csv lp_value.png
+          git commit -m "update LP history & graph" || echo "no changes to commit"
           git push
