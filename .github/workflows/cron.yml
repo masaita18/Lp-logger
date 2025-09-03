@@ -3,7 +3,7 @@ name: LP Logger
 on:
   schedule:
     - cron: "0 * * * *"   # 毎時実行
-  workflow_dispatch:       # 手動実行も可能
+  workflow_dispatch:      # 手動実行も可能
 
 jobs:
   run-logger:
