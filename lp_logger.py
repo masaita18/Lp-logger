@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-PRJX (HyperEVM / Hyperliquid) Uniswap v3 LPトラッカー
-- 毎日(日本時間)1回: 現在評価額と未請求リワードUSDをCSVに追記
-- グラフを日付(JST)付きPNGで保存（例: lp_value_2025-09-04.png）
-- 合計USDと、実績リワード累積の「擬似複利」曲線を可視化
-
-依存: requests, web3, pandas, matplotlib
+PRX (HyperEVM / Hyperliquid) Uniswap v3 LPトラッカー
+...
 """
 
 import os, csv, math, requests
@@ -14,23 +10,28 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from web3 import Web3
 
-# ===== 設定（必要に応じて変更） =====
-RPC_URL = "https://rpc.hyperliquid.xyz/evm"  # HyperEVM 公式RPC
+# ===== 設定 =====
+# GitHub Actions の Secret (HYPE_RPC) から読み込む
+RPC_URL = os.getenv("HYPE_RPC")
+if RPC_URL is None:
+    raise Exception("環境変数 HYPE_RPC が設定されていません。GitHub Secrets を確認してください。")
+
 POSITION_MANAGER = "0xbd19e19e4b70eb7f248695a42208bc1edbbfb57d"  # NonfungiblePositionManager
-POOL = "0xeaD19AE861c29bBb2101E834922B2FEee69B9091"               # HYPE/USDT プール
-TOKEN_ID = 101400                                                # あなたのLP NFT
-COINGECKO_ID_HYPE = "hyperliquid"                                # HYPEのCoinGecko ID
-CSV_FILE = "lp_history.csv"                                      # 履歴CSV
-IMG_DIR = "."                                                    # 画像の保存先（リポジトリ直下）
-# ================================
+POOL = "0xeaD19AE861c29BbB2101E834922B2FEee69B9091"              # あなたのLP NFTプール
+TOKEN_ID = 101400
+COINGECKO_ID_HYPE = "hyperliquid"  # HYPEのCoinGecko ID
+CSV_FILE = "lp_history.csv"
+IMG_DIR = "."
 
 # 日本時間
 JST = timezone(timedelta(hours=9))
 
+# Web3接続
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 assert w3.is_connected(), "RPCに接続できません。RPC_URLを確認してください。"
 
 Q96 = 2 ** 96
+
 
 # --- 必要最小限のABI ---
 ERC20_ABI = [
